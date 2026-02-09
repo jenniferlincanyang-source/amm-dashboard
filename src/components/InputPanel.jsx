@@ -20,7 +20,7 @@ export default function InputPanel({
       <div className="flex flex-col gap-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">
-            Token X Initial Reserve
+            ETH Initial Reserve (x)
           </label>
           <input
             type="number"
@@ -33,7 +33,7 @@ export default function InputPanel({
 
         <div>
           <label className="block text-sm text-gray-400 mb-1">
-            Token Y Initial Reserve
+            USDT Initial Reserve (y)
           </label>
           <input
             type="number"
