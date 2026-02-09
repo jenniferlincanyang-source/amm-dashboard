@@ -17,6 +17,9 @@ function BeforeDotWithLabel({ cx, cy, payload, tradeInfo, k }) {
   const bx = tradeInfo?.before?.x ?? payload?.x ?? 0;
   const by = tradeInfo?.before?.y ?? payload?.y ?? 0;
   const spotP = bx > 0 ? (by / bx).toFixed(2) : "0";
+  // Clamp label so it doesn't overflow the SVG
+  const lx = Math.max(cx + 12, 50);
+  const ly = Math.max(cy - 52, 10);
   return (
     <g>
       <circle cx={cx} cy={cy} r={8} fill="none" stroke="#00d4ff" strokeWidth={2} opacity={0}>
@@ -32,12 +35,11 @@ function BeforeDotWithLabel({ cx, cy, payload, tradeInfo, k }) {
       <circle cx={cx} cy={cy} r={5} fill="#00d4ff">
         <animate attributeName="opacity" values="1;0.5;1" dur="1.8s" repeatCount="indefinite" />
       </circle>
-      {/* Label box */}
-      <rect x={cx + 12} y={cy - 52} width={160} height={46} rx={8} fill="rgba(0,0,0,0.7)" stroke="#00d4ff" strokeWidth={0.5} />
-      <text x={cx + 20} y={cy - 34} fill="#00d4ff" fontSize={11} fontFamily="monospace" fontWeight="bold">
+      <rect x={lx} y={ly} width={145} height={40} rx={6} fill="rgba(0,0,0,0.75)" stroke="#00d4ff" strokeWidth={0.5} />
+      <text x={lx + 8} y={ly + 16} fill="#00d4ff" fontSize={10} fontFamily="monospace" fontWeight="bold">
         P₀ = y/x = {spotP}
       </text>
-      <text x={cx + 20} y={cy - 18} fill="#718096" fontSize={10} fontFamily="monospace">
+      <text x={lx + 8} y={ly + 30} fill="#718096" fontSize={9} fontFamily="monospace">
         ({bx.toFixed(1)}, {by.toFixed(1)})
       </text>
     </g>
@@ -47,20 +49,21 @@ function BeforeDotWithLabel({ cx, cy, payload, tradeInfo, k }) {
 function AfterDotWithLabel({ cx, cy, tradeInfo, k }) {
   if (cx == null || cy == null || !tradeInfo) return null;
   const { after, execPrice, spotAfter } = tradeInfo;
+  const lx = Math.min(cx - 155, cx - 20);
+  const ly = cy + 8;
   return (
     <g>
       <circle cx={cx} cy={cy} r={12} fill="#ff6b6b" opacity={0.1} />
       <circle cx={cx} cy={cy} r={7} fill="#ff6b6b" opacity={0.25} />
       <circle cx={cx} cy={cy} r={4} fill="#ff6b6b" />
-      {/* Label box */}
-      <rect x={cx - 172} y={cy + 8} width={160} height={60} rx={8} fill="rgba(0,0,0,0.7)" stroke="#ff6b6b" strokeWidth={0.5} />
-      <text x={cx - 164} y={cy + 26} fill="#ff6b6b" fontSize={11} fontFamily="monospace" fontWeight="bold">
+      <rect x={lx} y={ly} width={145} height={52} rx={6} fill="rgba(0,0,0,0.75)" stroke="#ff6b6b" strokeWidth={0.5} />
+      <text x={lx + 8} y={ly + 14} fill="#ff6b6b" fontSize={10} fontFamily="monospace" fontWeight="bold">
         P₁ = y'/x' = {spotAfter.toFixed(2)}
       </text>
-      <text x={cx - 164} y={cy + 42} fill="#fbbf24" fontSize={10} fontFamily="monospace">
+      <text x={lx + 8} y={ly + 28} fill="#fbbf24" fontSize={9} fontFamily="monospace">
         P_avg = Δy/Δx = {execPrice.toFixed(2)}
       </text>
-      <text x={cx - 164} y={cy + 56} fill="#718096" fontSize={10} fontFamily="monospace">
+      <text x={lx + 8} y={ly + 42} fill="#718096" fontSize={9} fontFamily="monospace">
         ({after.x.toFixed(1)}, {after.y.toFixed(1)})
       </text>
     </g>
@@ -85,23 +88,49 @@ export default function CurveChart({ curveData, currentPos, tradeInfo, k }) {
   const xMax = useMemo(() => Math.max(...curveData.map((d) => d.x)), [curveData]);
   const yMax = useMemo(() => Math.max(...curveData.map((d) => d.y)), [curveData]);
 
-  // Build chart data: curve + secant column for shaded area
+  // Build chart data: curve + secant + tangent (before) + tangent (after)
   const chartData = useMemo(() => {
-    if (!tradeInfo) return curveData;
+    const { before, after } = tradeInfo || {};
+    const lo = tradeInfo ? Math.min(after.x, before.x) : 0;
+    const hi = tradeInfo ? Math.max(after.x, before.x) : 0;
 
-    const { before, after } = tradeInfo;
-    const lo = Math.min(after.x, before.x);
-    const hi = Math.max(after.x, before.x);
+    // Tangent at currentPos (before): slope = -y/x
+    const slope0 = -(currentPos.y / currentPos.x);
+    const tan0Span = currentPos.x * 0.6;
+    const tan0Lo = currentPos.x - tan0Span;
+    const tan0Hi = currentPos.x + tan0Span;
+
+    // Tangent at after-trade position: slope = -y'/x'
+    const hasAfter = tradeInfo && after;
+    const slope1 = hasAfter ? -(after.y / after.x) : 0;
+    const tan1Span = hasAfter ? after.x * 0.6 : 0;
+    const tan1Lo = hasAfter ? after.x - tan1Span : 0;
+    const tan1Hi = hasAfter ? after.x + tan1Span : 0;
 
     return curveData.map((pt) => {
-      if (pt.x >= lo && pt.x <= hi) {
+      const out = { ...pt };
+
+      // Secant data
+      if (tradeInfo && pt.x >= lo && pt.x <= hi) {
         const t = (pt.x - after.x) / (before.x - after.x);
-        const secantY = after.y + t * (before.y - after.y);
-        return { ...pt, secant: parseFloat(secantY.toFixed(2)) };
+        out.secant = parseFloat((after.y + t * (before.y - after.y)).toFixed(2));
       }
-      return { ...pt };
+
+      // Tangent at before position
+      if (pt.x >= tan0Lo && pt.x <= tan0Hi) {
+        const tanY = currentPos.y + slope0 * (pt.x - currentPos.x);
+        if (tanY > 0) out.tangent0 = parseFloat(tanY.toFixed(2));
+      }
+
+      // Tangent at after position
+      if (hasAfter && pt.x >= tan1Lo && pt.x <= tan1Hi) {
+        const tanY = after.y + slope1 * (pt.x - after.x);
+        if (tanY > 0) out.tangent1 = parseFloat(tanY.toFixed(2));
+      }
+
+      return out;
     });
-  }, [curveData, tradeInfo]);
+  }, [curveData, tradeInfo, currentPos]);
 
   return (
     <motion.div
@@ -118,7 +147,8 @@ export default function CurveChart({ curveData, currentPos, tradeInfo, k }) {
           </span>
         )}
       </h2>
-      <ResponsiveContainer width="100%" height={420}>
+      <div className="h-[300px] md:h-[420px]">
+      <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
           <defs>
             <linearGradient id="slippageFill" x1="0" y1="0" x2="0" y2="1">
@@ -158,6 +188,14 @@ export default function CurveChart({ curveData, currentPos, tradeInfo, k }) {
           {/* Main curve */}
           <Line type="monotone" dataKey="y" stroke="#39ff14" strokeWidth={2} dot={false} animationDuration={0} />
 
+          {/* Tangent line at before position (P₀) */}
+          <Line type="monotone" dataKey="tangent0" stroke="#fbbf24" strokeWidth={1.5} strokeDasharray="4 3" dot={false} animationDuration={0} connectNulls={false} />
+
+          {/* Tangent line at after position (P₁) */}
+          {tradeInfo && (
+            <Line type="monotone" dataKey="tangent1" stroke="#ff6b6b" strokeWidth={1.5} strokeDasharray="4 3" dot={false} animationDuration={0} connectNulls={false} />
+          )}
+
           {/* Current position (before trade) */}
           <ReferenceDot
             x={parseFloat(currentPos.x.toFixed(2))}
@@ -177,8 +215,7 @@ export default function CurveChart({ curveData, currentPos, tradeInfo, k }) {
           )}
         </ComposedChart>
       </ResponsiveContainer>
-
-      {/* Formula bar */}
+      </div>
       <div className="flex flex-wrap items-center justify-center gap-3 text-xs mt-3 mb-2 font-mono">
         <span className="glass px-3 py-1.5 text-neon-green">
           y = k / x = {k.toLocaleString()} / x
@@ -204,11 +241,19 @@ export default function CurveChart({ curveData, currentPos, tradeInfo, k }) {
           <span className="inline-block w-3 h-3 rounded-full bg-[#00d4ff]" />
           Before ({currentPos.x.toFixed(1)}, {currentPos.y.toFixed(1)})
         </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block w-6 border-t-2 border-dashed border-[#fbbf24]" />
+          Tangent P₀ (spot before)
+        </span>
         {tradeInfo && (
           <>
             <span className="flex items-center gap-1.5">
               <span className="inline-block w-3 h-3 rounded-full bg-[#ff6b6b]" />
               After ({tradeInfo.after.x.toFixed(1)}, {tradeInfo.after.y.toFixed(1)})
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-6 border-t-2 border-dashed border-[#ff6b6b]" />
+              Tangent P₁ (spot after)
             </span>
             <span className="flex items-center gap-1.5">
               <span className="inline-block w-6 border-t-2 border-dashed border-[#ff6b6b]" />

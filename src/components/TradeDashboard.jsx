@@ -24,6 +24,8 @@ export default function TradeDashboard({
   usdtIn,
   onUsdtInChange,
   k,
+  onExecuteTrade,
+  animating,
 }) {
   const safeUsdtIn = Math.max(0, usdtIn);
 
@@ -64,7 +66,7 @@ export default function TradeDashboard({
             USDT → ETH
           </span>
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <label className="text-sm text-gray-400">Spend USDT:</label>
           <input
             type="number"
@@ -74,10 +76,52 @@ export default function TradeDashboard({
             onChange={(e) => onUsdtInChange(Math.max(0, Number(e.target.value)))}
             className="w-32 text-base text-center"
           />
+          <button
+            onClick={onExecuteTrade}
+            disabled={animating || safeUsdtIn <= 0}
+            className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-300 ${
+              animating || safeUsdtIn <= 0
+                ? "bg-white/5 text-gray-600 cursor-not-allowed"
+                : "bg-geek-blue/20 text-geek-blue border border-geek-blue/40 hover:bg-geek-blue/30 hover:shadow-[0_0_16px_rgba(0,212,255,0.3)]"
+            }`}
+          >
+            {animating ? "Executing..." : "Execute Trade"}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-px bg-white/5 rounded-xl overflow-hidden">
+      {/* Slippage highlight bar */}
+      {safeUsdtIn > 0 && (
+        <div className={`flex items-center justify-between rounded-xl px-5 py-3 mb-4 border ${
+          priceImpact > 5 ? "bg-red-500/10 border-red-500/30" :
+          priceImpact > 1 ? "bg-yellow-500/10 border-yellow-500/30" :
+          "bg-neon-green/5 border-neon-green/20"
+        }`}>
+          <div className="flex items-center gap-3">
+            <span className="text-lg">{priceImpact > 5 ? "⚠️" : priceImpact > 1 ? "⚡" : "✅"}</span>
+            <div>
+              <span className="text-sm text-gray-400">Slippage</span>
+              <p className="text-[10px] text-gray-600">
+                (Exec Price − Spot) / Spot
+              </p>
+            </div>
+          </div>
+          <motion.span
+            key={priceImpact.toFixed(2)}
+            initial={{ scale: 1.15 }}
+            animate={{ scale: 1 }}
+            className={`text-2xl md:text-3xl font-mono font-bold ${
+              priceImpact > 5 ? "text-red-400" :
+              priceImpact > 1 ? "text-yellow-400" :
+              "text-neon-green"
+            }`}
+          >
+            +{priceImpact.toFixed(3)}%
+          </motion.span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-px bg-white/5 rounded-xl overflow-hidden">
         <Cell
           label="ETH Reserve (after)"
           value={newEthReserve.toFixed(4)}
@@ -105,12 +149,8 @@ export default function TradeDashboard({
         <Cell
           label="Execution Price (avg)"
           value={execPrice.toFixed(4)}
-          sub={
-            priceImpact > 0.01
-              ? `Slippage: +${priceImpact.toFixed(2)}%`
-              : "≈ Spot"
-          }
-          color={priceImpact > 1 ? "text-yellow-400" : priceImpact > 5 ? "text-red-400" : "text-gray-200"}
+          sub="USDT / ETH"
+          color="text-gray-200"
         />
         <Cell
           label="Verify: new x × y"

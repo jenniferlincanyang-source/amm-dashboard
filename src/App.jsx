@@ -1,10 +1,11 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import InputPanel from "./components/InputPanel";
 import CurveChart from "./components/CurveChart";
 import StatsBar from "./components/StatsBar";
 import PriceHistory from "./components/PriceHistory";
 import ILCompareChart from "./components/ILCompareChart";
 import TradeDashboard from "./components/TradeDashboard";
+import AmmFlowSteps from "./components/AmmFlowSteps";
 import {
   computeK,
   computePrice,
@@ -19,8 +20,38 @@ export default function App() {
   const [priceMultiplier, setPriceMultiplier] = useState(1);
   const [usdtIn, setUsdtIn] = useState(100);
   const [history, setHistory] = useState([]);
+  const [animating, setAnimating] = useState(false);
+  const [animatedPos, setAnimatedPos] = useState(null);
   const idRef = useRef(0);
   const lastRecordedRef = useRef(null);
+
+  // Execute trade: animate dot from before → after, then commit
+  const handleExecuteTrade = useCallback(() => {
+    if (!tradeInfoRef.current || animating) return;
+    const { before, after } = tradeInfoRef.current;
+    setAnimating(true);
+
+    const duration = 600;
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min((now - start) / duration, 1);
+      const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+      setAnimatedPos({
+        x: before.x + (after.x - before.x) * ease,
+        y: before.y + (after.y - before.y) * ease,
+      });
+      if (t < 1) {
+        requestAnimationFrame(step);
+      } else {
+        // Commit: update reserves to after-trade values
+        const newPriceRatio = (after.y / after.x) / (y0 / x0);
+        setPriceMultiplier(newPriceRatio);
+        setAnimatedPos(null);
+        setAnimating(false);
+      }
+    };
+    requestAnimationFrame(step);
+  }, [animating, x0, y0]);
 
   const handlePriceChange = useCallback((val) => {
     setPriceMultiplier(val);
@@ -86,6 +117,12 @@ export default function App() {
     };
   }, [currentPos, usdtIn, k]);
 
+  const tradeInfoRef = useRef(tradeInfo);
+  tradeInfoRef.current = tradeInfo;
+
+  // The position the chart actually renders
+  const displayPos = animatedPos || currentPos;
+
   return (
     <div className="dark min-h-screen p-4 md:p-8">
       <header className="text-center mb-8">
@@ -109,7 +146,7 @@ export default function App() {
             onY0Change={setY0}
             onPriceMultiplierChange={handlePriceChange}
           />
-          <CurveChart curveData={curveData} currentPos={currentPos} tradeInfo={tradeInfo} k={k} />
+          <CurveChart curveData={curveData} currentPos={displayPos} tradeInfo={animating ? null : tradeInfo} k={k} />
         </div>
 
         <TradeDashboard
@@ -118,6 +155,8 @@ export default function App() {
           usdtIn={usdtIn}
           onUsdtInChange={setUsdtIn}
           k={k}
+          onExecuteTrade={handleExecuteTrade}
+          animating={animating}
         />
 
         <StatsBar
@@ -130,6 +169,8 @@ export default function App() {
         <ILCompareChart x0={x0} y0={y0} priceMultiplier={priceMultiplier} />
 
         <PriceHistory records={history} onClear={() => setHistory([])} />
+
+        <AmmFlowSteps k={k} usdtIn={usdtIn} priceMultiplier={priceMultiplier} />
       </div>
     </div>
   );
